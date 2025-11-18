@@ -5,10 +5,12 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import { colors } from '../theme/colors';
+import { getUser } from '../storage/authStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'> & {
   onLogin: () => void;
@@ -17,6 +19,48 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'> & {
 export default function LoginScreen({ navigation, onLogin }: Props) {
   const [correo, setCorreo] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleLogin = async () => {
+    setErrorMsg(null);
+
+    if (!correo.trim() || !password.trim()) {
+      setErrorMsg('Ingresa tu correo y contraseña.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const stored = await getUser();
+
+      if (!stored) {
+        setErrorMsg('No hay ninguna cuenta registrada en este dispositivo.');
+        return;
+      }
+
+      const emailNormalized = correo.trim().toLowerCase();
+
+      if (
+        stored.email !== emailNormalized ||
+        stored.password !== password
+      ) {
+        setErrorMsg('Correo o contraseña incorrectos.');
+        return;
+      }
+
+      // ✅ credenciales correctas → marcamos como logueado
+      onLogin();
+    } catch (e) {
+      console.log(e);
+      Alert.alert(
+        'Error',
+        'Ocurrió un problema al validar tus datos. Intenta de nuevo.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -41,8 +85,19 @@ export default function LoginScreen({ navigation, onLogin }: Props) {
         onChangeText={setPassword}
       />
 
-      <TouchableOpacity style={styles.mainButton} onPress={onLogin}>
-        <Text style={styles.mainButtonText}>Entrar</Text>
+      {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+
+      <TouchableOpacity
+        style={[
+          styles.mainButton,
+          loading && { opacity: 0.7 },
+        ]}
+        onPress={handleLogin}
+        disabled={loading}
+      >
+        <Text style={styles.mainButtonText}>
+          {loading ? 'Entrando...' : 'Entrar'}
+        </Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -52,9 +107,11 @@ export default function LoginScreen({ navigation, onLogin }: Props) {
         <Text style={styles.linkText}>Crear cuenta nueva</Text>
       </TouchableOpacity>
 
-      <Text style={styles.footerText}>¿Olvidaste tu contraseña?</Text>
+      <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+        <Text style={styles.footerText}>¿Olvidaste tu contraseña?</Text>
+      </TouchableOpacity>
 
-      <Text style={styles.versionInfo}>Versión 1.0.0 · Demo</Text>
+      <Text style={styles.versionInfo}>Versión 1.0.0 · Demo local</Text>
     </View>
   );
 }
@@ -90,6 +147,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     fontSize: 15,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    marginBottom: 8,
+    alignSelf: 'flex-start',
   },
   mainButton: {
     backgroundColor: colors.accent,

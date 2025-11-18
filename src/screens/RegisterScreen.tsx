@@ -5,10 +5,12 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import { colors } from '../theme/colors';
+import { saveUser } from '../storage/authStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
 
@@ -17,10 +19,49 @@ export default function RegisterScreen({ navigation }: Props) {
   const [correo, setCorreo] = useState('');
   const [edad, setEdad] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleCreateAccount = () => {
-    // futuro: mandar datos al backend
-    navigation.navigate('Login');
+  const handleCreateAccount = async () => {
+    // validaciones muy básicas
+    if (!nombre.trim() || !correo.trim() || !edad.trim() || !password.trim()) {
+      Alert.alert('Campos incompletos', 'Llena todos los campos.');
+      return;
+    }
+
+    const ageNum = Number(edad);
+    if (isNaN(ageNum) || ageNum <= 0) {
+      Alert.alert('Edad inválida', 'Ingresa una edad válida.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await saveUser({
+        name: nombre.trim(),
+        email: correo.trim().toLowerCase(),
+        age: ageNum,
+        password,
+      });
+
+      Alert.alert(
+        'Cuenta creada',
+        'Tu cuenta se guardó en el dispositivo. Ahora inicia sesión.',
+        [
+          {
+            text: 'Ir al login',
+            onPress: () => navigation.navigate('Login'),
+          },
+        ],
+      );
+    } catch (e) {
+      console.log(e);
+      Alert.alert(
+        'Error',
+        'Ocurrió un problema al guardar tu cuenta. Intenta de nuevo.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -63,8 +104,17 @@ export default function RegisterScreen({ navigation }: Props) {
         onChangeText={setPassword}
       />
 
-      <TouchableOpacity style={styles.mainButton} onPress={handleCreateAccount}>
-        <Text style={styles.mainButtonText}>Crear cuenta</Text>
+      <TouchableOpacity
+        style={[
+          styles.mainButton,
+          loading && { opacity: 0.7 },
+        ]}
+        onPress={handleCreateAccount}
+        disabled={loading}
+      >
+        <Text style={styles.mainButtonText}>
+          {loading ? 'Guardando...' : 'Crear cuenta'}
+        </Text>
       </TouchableOpacity>
 
       <TouchableOpacity

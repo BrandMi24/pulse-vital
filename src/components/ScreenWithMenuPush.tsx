@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,19 +13,26 @@ import {
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/RootNavigator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// servicio del sensor
+import { fetchLatestReadings, DEVICE_ID, SensorReading } from '../data/sensorService';
+
+// contexto del slide
+import { useSlideMenu } from '../navigation/SlideMenuContext';
+
+// 👇 storage local del usuario
+import { getUser } from '../storage/authStorage';
 
 const { width } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(width * 0.7, 260);
 
 type ScreenWithMenuPushProps = {
   children: React.ReactNode;
-  userName?: string;
-  deviceStatus?: string;
-  deviceId?: string;
-  avatarLabel?: string;
+  userName?: string;       // opcional, se puede override
+  deviceStatus?: string;   // override opcional
+  deviceId?: string;       // override opcional
+  avatarLabel?: string;    // opcional
   scroll?: boolean;
   contentContainerStyle?: ViewStyle;
   scrollProps?: ScrollViewProps;
@@ -33,78 +40,144 @@ type ScreenWithMenuPushProps = {
 
 export default function ScreenWithMenuPush({
   children,
-  userName = 'Gerardo',
-  deviceStatus = 'Conectado',
-  deviceId = 'MAX30102_001',
-  avatarLabel = 'G',
+  userName = 'Usuario',
+  deviceStatus,
+  deviceId,
+  avatarLabel = 'U',
   scroll = true,
   contentContainerStyle,
   scrollProps,
 }: ScreenWithMenuPushProps) {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
+  const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { translateX, isOpen, open, close, toggle } = useSlideMenu();
 
-  const [isOpen, setIsOpen] = useState(false);
+  // 👉 nombre y avatar que realmente se muestran
+  const [displayName, setDisplayName] = useState(userName);
+  const [displayAvatar, setDisplayAvatar] = useState(avatarLabel);
 
-  // anim value que mueve TODO el contenido (header + body) a la derecha
-  const translateX = useRef(new Animated.Value(0)).current;
+  // Estado local que se llena con la API del sensor
+  const [deviceInfo, setDeviceInfo] = useState<{
+    status: string;
+    id: string;
+  }>({
+    status: 'Cargando...',
+    id: DEVICE_ID,
+  });
 
-  const deviceIsConnected = deviceStatus === 'Conectado';
+  // Cargar info del usuario guardado
+  useEffect(() => {
+    let mounted = true;
 
-  function openMenu() {
-    setIsOpen(true);
-    Animated.timing(translateX, {
-      toValue: DRAWER_WIDTH, // empuja la pantalla
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  }
+    const loadUser = async () => {
+      try {
+        const stored = await getUser(); // { name, email, age, password }
+        if (!mounted || !stored) return;
 
-  function closeMenu() {
-    Animated.timing(translateX, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        setIsOpen(false);
+        if (stored.name && stored.name.trim().length > 0) {
+          const name = stored.name.trim();
+          setDisplayName(name);
+
+          const firstLetter = name.charAt(0).toUpperCase();
+          setDisplayAvatar(firstLetter);
+        }
+      } catch (e) {
+        console.log('Error cargando usuario', e);
       }
-    });
-  }
+    };
+
+    loadUser();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Llamada a la API del sensor
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadStatus = async () => {
+      try {
+        const data: SensorReading[] = await fetchLatestReadings(1);
+
+        if (!isMounted) return;
+
+        if (data.length > 0) {
+          const latest = data[0];
+          const now = new Date();
+          const last = new Date(latest.timestamp);
+          const diffMins = (now.getTime() - last.getTime()) / 60000;
+
+          const status = diffMins < 5 ? 'Conectado' : 'Sin señal';
+
+          setDeviceInfo({
+            status,
+            id: latest.device_id,
+          });
+        } else {
+          setDeviceInfo({
+            status: 'Sin señal',
+            id: DEVICE_ID,
+          });
+        }
+      } catch (e) {
+        if (isMounted) {
+          setDeviceInfo({
+            status: 'Sin señal',
+            id: DEVICE_ID,
+          });
+        }
+      }
+    };
+
+    loadStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Lo que mande la pantalla pisa lo que viene de la API
+  const effectiveStatus = deviceStatus ?? deviceInfo.status;
+  const effectiveId = deviceId ?? deviceInfo.id;
+  const deviceIsConnected = effectiveStatus === 'Conectado';
 
   // helpers para navegar desde el menú
   function goProfile() {
-    closeMenu();
+    close();
     setTimeout(() => {
-      navigation.navigate('Profile');
-    }, 220); // esperamos tantito para que termine la anim
+      navigation.navigate('MainTabs', {
+        screen: 'HomeTab',
+        params: { screen: 'Profile' },
+      });
+    }, 220);
   }
 
   function goHistory() {
-    closeMenu();
+    close();
     setTimeout(() => {
-      navigation.navigate('History');
+      navigation.navigate('MainTabs', {
+        screen: 'HistoryTab',
+      });
     }, 220);
   }
 
   function goAlerts() {
-    closeMenu();
+    close();
     setTimeout(() => {
-      console.log('Ir a Alertas/Recomendaciones');
-      // futuro:
-      // navigation.navigate('Alerts');
+      navigation.navigate('MainTabs', {
+        screen: 'MonitorTab',
+      });
     }, 220);
   }
 
   return (
     <View style={styles.root}>
-      {/* SIDEBAR (fijo atrás a la izquierda) */}
+      {/* SIDEBAR */}
       <View style={[styles.sidebar, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.sidebarTitle}>Menú</Text>
 
-        {/* ----- CUENTA ----- */}
+        {/* CUENTA */}
         <View style={styles.sidebarSection}>
           <Text style={styles.sidebarSectionTitle}>Cuenta</Text>
 
@@ -123,14 +196,14 @@ export default function ScreenWithMenuPush({
           </TouchableOpacity>
         </View>
 
-        {/* ----- MONITOREO ----- */}
+        {/* MONITOREO */}
         <View style={styles.sidebarSection}>
           <Text style={styles.sidebarSectionTitle}>Monitoreo</Text>
 
           <TouchableOpacity style={styles.sidebarRow} onPress={() => {}}>
             <Text style={styles.sidebarRowText}>Dispositivo vinculado</Text>
             <Text style={styles.sidebarSubText}>
-              {deviceStatus} · {deviceId}
+              {effectiveStatus} · {effectiveId}
             </Text>
           </TouchableOpacity>
 
@@ -151,7 +224,7 @@ export default function ScreenWithMenuPush({
           </TouchableOpacity>
         </View>
 
-        {/* ----- SESIÓN ----- */}
+        {/* SESIÓN */}
         <View style={styles.sidebarSection}>
           <Text style={styles.sidebarSectionTitle}>Sesión</Text>
 
@@ -159,9 +232,6 @@ export default function ScreenWithMenuPush({
             style={styles.sidebarRow}
             onPress={() => {
               console.log('Cerrar sesión');
-              // futuro:
-              // - limpiar auth global
-              // - navigation.reset({ index: 0, routes: [{ name: 'Login' }] })
             }}
           >
             <Text style={[styles.sidebarRowText, { color: colors.danger }]}>
@@ -173,66 +243,57 @@ export default function ScreenWithMenuPush({
         <Text style={styles.sidebarFooter}>Pulse Vital v1.0.0</Text>
       </View>
 
-      {/* FOREGROUND: toda la app que se mueve */}
+      {/* FOREGROUND */}
       <Animated.View
         style={[
           styles.foregroundWrapper,
           {
             transform: [{ translateX }],
-            // sombra / elevación cuando está abierto
             shadowOpacity: isOpen ? 0.6 : 0,
             elevation: isOpen ? 20 : 0,
           },
         ]}
       >
-        {/* Si el menú está abierto, tocar en cualquier lugar cierra */}
-        <Pressable style={{ flex: 1 }} disabled={!isOpen} onPress={closeMenu}>
+        <Pressable style={{ flex: 1 }} disabled={!isOpen} onPress={close}>
           <View style={styles.foregroundInner}>
             {/* HEADER SUPERIOR */}
             <View
               style={[
                 styles.headerRow,
                 {
-                  paddingTop: insets.top + 12, // safe area top dinámico
+                  paddingTop: insets.top + 12,
                 },
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.helloText}>
-                  Hola, {userName} 👋
-                </Text>
+                <Text style={styles.helloText}>Hola, {displayName} 👋</Text>
 
                 <Text style={styles.deviceText}>
                   Dispositivo:{' '}
                   <Text
-                    style={
-                      deviceIsConnected ? styles.deviceOk : styles.deviceBad
-                    }
+                    style={deviceIsConnected ? styles.deviceOk : styles.deviceBad}
                   >
-                    {deviceStatus}
+                    {effectiveStatus}
                   </Text>
                 </Text>
 
-                <Text style={styles.deviceSubText}>ID {deviceId}</Text>
+                <Text style={styles.deviceSubText}>ID {effectiveId}</Text>
               </View>
 
-              {/* avatarLabel opcional */}
+              {/* avatar con primera letra */}
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{avatarLabel}</Text>
+                <Text style={styles.avatarText}>{displayAvatar}</Text>
               </View>
 
               {/* Botón hamburguesa */}
-              <TouchableOpacity
-                style={styles.menuButton}
-                onPress={isOpen ? closeMenu : openMenu}
-              >
+              <TouchableOpacity style={styles.menuButton} onPress={toggle}>
                 <View style={styles.menuLine} />
                 <View style={styles.menuLine} />
                 <View style={styles.menuLine} />
               </TouchableOpacity>
             </View>
 
-            {/* CONTENIDO (SCROLL O ESTÁTICO) */}
+            {/* CONTENIDO */}
             {scroll ? (
               <ScrollView
                 style={styles.scrollArea}
@@ -240,7 +301,6 @@ export default function ScreenWithMenuPush({
                   styles.scrollContent,
                   contentContainerStyle,
                   {
-                    // Empuja el contenido final para que no lo tape la tab bar flotante
                     paddingBottom:
                       ((contentContainerStyle as any)?.paddingBottom ?? 100) +
                       insets.bottom +
@@ -281,31 +341,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.background,
   },
-
-  /* SIDEBAR (fijo a la izquierda debajo) */
   sidebar: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-
     width: DRAWER_WIDTH,
     backgroundColor: colors.sidebarBg,
     borderRightWidth: 1,
     borderRightColor: colors.sidebarBorder,
-
     paddingHorizontal: 16,
-    // paddingTop dinámico con insets.top en render
     paddingBottom: 24,
   },
-
   sidebarTitle: {
     color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 24,
   },
-
   sidebarSection: {
     marginBottom: 24,
   },
@@ -317,7 +370,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-
   sidebarRow: {
     marginBottom: 16,
   },
@@ -332,40 +384,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
   },
-
   sidebarFooter: {
     color: colors.dim,
     fontSize: 12,
     marginTop: 'auto',
     textAlign: 'center',
   },
-
-  /* FOREGROUND (pantalla principal que se empuja) */
   foregroundWrapper: {
     flex: 1,
     backgroundColor: colors.background,
-
     shadowColor: '#000',
     shadowOffset: { width: -4, height: 4 },
     shadowRadius: 12,
     borderLeftWidth: 0,
   },
-
   foregroundInner: {
     flex: 1,
     backgroundColor: colors.background,
   },
-
-  // HEADER (parte arriba donde dice Hola..., estado del dispositivo, avatar y hamburguesa)
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: colors.background,
     paddingHorizontal: 16,
-    // paddingTop dinámico con insets.top en render
     paddingBottom: 12,
   },
-
   helloText: {
     color: colors.text,
     fontSize: 20,
@@ -390,7 +433,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-
   avatar: {
     width: 44,
     height: 44,
@@ -407,7 +449,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-
   menuButton: {
     marginLeft: 12,
     paddingHorizontal: 10,
@@ -422,22 +463,17 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginVertical: 2,
   },
-
-  // CONTENIDO
   scrollArea: {
     flex: 1,
     backgroundColor: colors.background,
   },
   scrollContent: {
     padding: 16,
-    // paddingBottom dinámico en render
   },
-
   staticArea: {
     flex: 1,
     backgroundColor: colors.background,
     padding: 16,
-    // paddingBottom dinámico en render
   },
 });
 

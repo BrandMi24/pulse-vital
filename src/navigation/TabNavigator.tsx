@@ -1,13 +1,17 @@
+// navigation/TabNavigator.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { colors } from '../theme/colors';
 
-import HomeScreen from '../screens/HomeScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import LiveScreen from '../screens/LiveScreen';
+import HomeStack from './HomeStack';
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+// 👇 usamos el mismo contexto
+import { useSlideMenu } from './SlideMenuContext';
 
 export type TabParamList = {
   HistoryTab: undefined;
@@ -21,26 +25,27 @@ const TAB_HEIGHT = 85;
 const TAB_CONTENT_HEIGHT = 56;
 
 export default function TabNavigator() {
+  const { translateX } = useSlideMenu(); // 👈 aquí
+
   return (
     <Tab.Navigator
       initialRouteName="HomeTab"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
-
         tabBarStyle: {
           position: 'absolute',
           left: 0,
           right: 0,
-          bottom: 30, // súbelo un poco
+          bottom: 30,
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           elevation: 0,
           height: TAB_HEIGHT,
+          // 👇 la barra se mueve igual que la pantalla
+          transform: [{ translateX }],
         },
-
         tabBarBackground: () => <View style={styles.tabBarBackground} />,
-
         tabBarIcon: ({ focused }) => {
           let iconName = '';
           let label = '';
@@ -69,9 +74,7 @@ export default function TabNavigator() {
                     name={iconName as any}
                     size={22}
                     color={
-                      focused
-                        ? colors.tabIconActive
-                        : colors.tabIconInactive
+                      focused ? colors.tabIconActive : colors.tabIconInactive
                     }
                   />
                 </View>
@@ -96,7 +99,7 @@ export default function TabNavigator() {
       })}
     >
       <Tab.Screen name="HistoryTab" component={HistoryScreen} />
-      <Tab.Screen name="HomeTab" component={HomeScreen} />
+      <Tab.Screen name="HomeTab" component={HomeStack} />
       <Tab.Screen name="MonitorTab" component={LiveScreen} />
     </Tab.Navigator>
   );
@@ -105,23 +108,21 @@ export default function TabNavigator() {
 const styles = StyleSheet.create({
   tabBarBackground: {
     position: 'absolute',
-    alignSelf: 'center',      // centra horizontalmente
+    alignSelf: 'center',
     bottom: 0,
-    width: '95%',             // o usa un valor fijo, ej: 300
+    width: '95%',
     height: TAB_HEIGHT,
     borderRadius: 26,
     backgroundColor: colors.tabBarBg,
     borderWidth: 1,
     borderColor: colors.tabBarBorder,
   },
-
   tapArea: {
     flex: 1,
     height: TAB_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   tabContentBox: {
     height: TAB_CONTENT_HEIGHT,
     width: '100%',
@@ -129,21 +130,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    transform: [{ translateY: 20 }], // 🔥 Baja todo un poco más dentro de la barra
+    transform: [{ translateY: 20 }],
   },
-
   iconWrapper: {
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 14,
     backgroundColor: 'transparent',
-    transform: [{ translateY: 4 }], // 🔥 Baja el ícono dentro del rectángulo
+    transform: [{ translateY: 4 }],
   },
-
   iconWrapperActive: {
     backgroundColor: colors.tabIconBgActive,
   },
-
   tabLabel: {
     fontSize: 13,
     fontWeight: '500',
@@ -151,7 +149,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     includeFontPadding: false,
   },
-
   tabLabelActive: {
     fontWeight: '600',
   },

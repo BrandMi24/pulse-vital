@@ -1,41 +1,41 @@
-import React, { useState } from 'react';
+// navigation/RootNavigator.tsx
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 
 import OnboardingStep1Screen from '../screens/onboarding/OnboardingStep1Screen';
 import OnboardingStep2Screen from '../screens/onboarding/OnboardingStep2Screen';
 import OnboardingStep3Screen from '../screens/onboarding/OnboardingStep3Screen';
 
+import PairDeviceScreen from '../screens/PairDeviceScreen';
+
 import TabNavigator from './TabNavigator';
-
-import ProfileScreen from '../screens/ProfileScreen';
-import HistoryScreen from '../screens/HistoryScreen';
-
 import { colors } from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
 
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
 
   OnboardingStep1: undefined;
   OnboardingStep2: undefined;
   OnboardingStep3: undefined;
 
   MainTabs: undefined;
-
-  Profile: undefined;
-  History: undefined;
+  PairDevice: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { isLoggedIn, login } = useAuth(); // 👈 usamos el contexto
 
-  // Fase 1: antes de iniciar sesión → Login / Register
   if (!isLoggedIn) {
+    // 🔒 FLOW SIN SESIÓN
     return (
       <Stack.Navigator
         screenOptions={{
@@ -48,29 +48,18 @@ export default function RootNavigator() {
           {(props) => (
             <LoginScreen
               {...props}
-              onLogin={() => {
-                // cuando el usuario "inicia sesión"
-                // lo marcamos como logueado
-                setIsLoggedIn(true);
-              }}
+              onLogin={login} // 👈 marca logged in
             />
           )}
         </Stack.Screen>
 
         <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       </Stack.Navigator>
     );
   }
 
-  // Fase 2 y 3: usuario logueado
-  // Aquí ya tenemos:
-  // - onboarding steps (primero que nada)
-  // - luego el TabNavigator (MainTabs)
-  // - y pantallas extra como Profile e History
-  //
-  // Nota: Profile e History están registradas aquí incluso si
-  // también tienes tabs que muestran info parecida. Eso es normal:
-  // esto permite navegar directo desde el menú lateral.
+  // ✅ FLOW CON SESIÓN
   return (
     <Stack.Navigator
       screenOptions={{
@@ -79,17 +68,15 @@ export default function RootNavigator() {
         animation: 'fade',
       }}
     >
-      {/* Onboarding flow */}
       <Stack.Screen name="OnboardingStep1" component={OnboardingStep1Screen} />
       <Stack.Screen name="OnboardingStep2" component={OnboardingStep2Screen} />
       <Stack.Screen name="OnboardingStep3" component={OnboardingStep3Screen} />
-
-      {/* Pantalla principal con tabs */}
       <Stack.Screen name="MainTabs" component={TabNavigator} />
 
-      {/* Rutas accesibles desde el menú lateral */}
-      <Stack.Screen name="Profile" component={ProfileScreen} />
-      <Stack.Screen name="History" component={HistoryScreen} />
+      <Stack.Screen name="PairDevice" component={PairDeviceScreen} />
+
+      {/* ForgotPassword disponible también estando logueado */}
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 }

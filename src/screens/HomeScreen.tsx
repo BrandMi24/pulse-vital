@@ -1,190 +1,293 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useMemo, useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import ScreenWithMenuPush from '../components/ScreenWithMenuPush';
 import { colors } from '../theme/colors';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
-// Datos mock simulando "lo último guardado" (no en vivo)
-const latestSummary = {
-  lastSessionAgo: '2h', // "hace 2h" que se monitoreó en vivo
-  device_id: 'MAX30102_001',
-  device_status: 'Conectado',
+// 1. IMPORTE MODULAR: Traemos la configuración y tipos desde tu nuevo servicio
+import { 
+  fetchLatestReadings, 
+  DEVICE_ID, 
+  SensorReading 
+} from '../data/sensorService';
 
-  heart_rate_avg: 80,
-  heart_rate_status: 'Normal',
-
-  spo2_avg: 97,
-  spo2_status: 'Óptimo',
-
-  temperature_avg: 98.4,
-  temperature_status: 'Sin fiebre',
-
-  hadAlert: false, // si en las últimas lecturas hubo algo feo
-  lastAlertText: 'Oxigenación baja detectada el 27 oct · SpO₂ 92%',
-};
-
-// Mock de “trend” tipo últimos promedios horarios
-// Esto podría venir del backend para el sparkline
-const heartTrend = [82, 81, 80, 79, 80, 82, 81];
-const spo2Trend = [96, 97, 97, 98, 97, 96, 97];
-const tempTrend = [98.6, 98.5, 98.4, 98.4, 98.5, 98.7, 98.4];
+// Definimos el estado local para la UI de esta pantalla
+interface SummaryState {
+  lastSessionAgo: string;
+  device_id: string;
+  device_status: 'Conectado' | 'Sin señal' | 'Cargando...';
+  heart_rate_avg: number | string;
+  heart_rate_status: string;
+  spo2_avg: number | string;
+  spo2_status: string;
+  temperature_avg: number | string;
+  temperature_status: string;
+  hadAlert: boolean;
+  lastAlertText: string;
+}
 
 export default function HomeScreen() {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // recomendación ligera tipo “coach de salud”
-  const recommendation = useMemo(() => {
-    // lógica súper simple mock:
-    if (latestSummary.hadAlert) {
-      return 'Se detectaron valores fuera de rango recientemente. Mantente atento y consulta Historial.';
+  // 2. Estados dinámicos
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [readings, setReadings] = useState<SensorReading[]>([]);
+  
+  const [summary, setSummary] = useState<SummaryState>({
+    lastSessionAgo: '--',
+    device_id: DEVICE_ID, // Usamos la constante importada del servicio
+    device_status: 'Cargando...',
+    heart_rate_avg: '--',
+    heart_rate_status: 'Espere...',
+    spo2_avg: '--',
+    spo2_status: 'Espere...',
+    temperature_avg: '--',
+    temperature_status: 'Espere...',
+    hadAlert: false,
+    lastAlertText: '',
+  });
+
+  // 3. Función modularizada para obtener datos
+  const loadData = useCallback(async () => {
+    try {
+      // Llamamos al servicio en lugar de hacer fetch manual aquí
+      const data = await fetchLatestReadings(20);
+
+      if (data.length > 0) {
+        processData(data);
+      } else {
+        // Si el array está vacío, es que no hay datos o falló silenciosamente
+        setSummary(prev => ({ ...prev, device_status: 'Sin señal', lastSessionAgo: 'Nunca' }));
+        setReadings([]);
+      }
+
+    } catch (error) {
+      console.log("Error en Home:", error);
+      setSummary(prev => ({ ...prev, device_status: 'Sin señal' }));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    if (latestSummary.heart_rate_avg > 90) {
-      return 'Tu ritmo cardíaco promedio está un poco elevado. Considera descansar y mantenerte hidratado.';
-    }
-    if (latestSummary.temperature_avg >= 100.4) {
-      return 'Temperatura elevada. Vigila síntomas de fiebre.';
-    }
-    return 'Todo estable. Buen trabajo manteniendo tus signos vitales dentro de rango 👍';
   }, []);
+
+  // 4. Lógica de procesamiento visual (esto sí pertenece a la pantalla)
+  const processData = (data: SensorReading[]) => {
+    const latest = data[0];
+    
+    // Calcular tiempo transcurrido
+    const now = new Date();
+    const lastDate = new Date(latest.timestamp);
+    const diffMs = now.getTime() - lastDate.getTime();
+    const diffMins = Math.round(diffMs / 60000);
+    
+    let timeAgoText = `${diffMins} min`;
+    if (diffMins > 60) timeAgoText = `${Math.round(diffMins / 60)} h`;
+    if (diffMins > 1440) timeAgoText = `${Math.round(diffMins / 1440)} días`;
+
+    // Si hace más de 5 mins no recibimos nada, asumimos desconectado
+    const isConnected = diffMins < 5;
+
+    // Filtrar nulos para promedios
+    const validHeart = data.filter(r => r.heart_rate !== null).map(r => r.heart_rate as number);
+    const validSpo2 = data.filter(r => r.spo2 !== null).map(r => r.spo2 as number);
+    const validTemp = data.filter(r => r.temperature !== null).map(r => r.temperature as number);
+
+    const avgHr = validHeart.length ? Math.round(validHeart.reduce((a, b) => a + b, 0) / validHeart.length) : 0;
+    const avgSpo2 = validSpo2.length ? Math.round(validSpo2.reduce((a, b) => a + b, 0) / validSpo2.length) : 0;
+    const avgTemp = validTemp.length ? (validTemp.reduce((a, b) => a + b, 0) / validTemp.length).toFixed(1) : 0;
+
+    // Estatus visuales
+    const hrStatus = avgHr > 100 ? 'Elevado' : avgHr < 60 ? 'Bajo' : 'Normal';
+    const spo2Status = avgSpo2 < 95 ? 'Bajo' : 'Óptimo';
+    const tempStatus = Number(avgTemp) > 37.5 ? 'Fiebre' : 'Normal'; 
+
+    // Detectar alerta solo en la última lectura
+    let alertText = '';
+    let hasAlert = false;
+    
+    if (latest.spo2 && latest.spo2 < 90) {
+      hasAlert = true;
+      alertText = `Oxigenación crítica (${latest.spo2}%) detectada.`;
+    } else if (latest.heart_rate && latest.heart_rate > 120) {
+      hasAlert = true;
+      alertText = `Ritmo cardíaco alto (${latest.heart_rate} bpm).`;
+    }
+
+    setReadings(data);
+    setSummary({
+      device_id: latest.device_id,
+      lastSessionAgo: timeAgoText,
+      device_status: isConnected ? 'Conectado' : 'Sin señal',
+      heart_rate_avg: avgHr || '--',
+      heart_rate_status: hrStatus,
+      spo2_avg: avgSpo2 || '--',
+      spo2_status: spo2Status,
+      temperature_avg: avgTemp || '--',
+      temperature_status: tempStatus,
+      hadAlert: hasAlert,
+      lastAlertText: alertText
+    });
+  };
+
+  // Cargar datos al montar
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  // 5. Tendencias para UI (Sparklines)
+  // La API da [nuevo, viejo...], para graficar necesitamos [viejo, nuevo...]
+  const heartTrend = useMemo(() => readings.map(r => r.heart_rate || 0).reverse(), [readings]);
+  const spo2Trend = useMemo(() => readings.map(r => r.spo2 || 0).reverse(), [readings]);
+  const tempTrend = useMemo(() => readings.map(r => r.temperature || 0).reverse(), [readings]);
+
+  // Recomendación dinámica
+  const recommendation = useMemo(() => {
+    if (summary.hadAlert) return 'Se detectaron valores críticos. Revisa tu historial.';
+    if (typeof summary.heart_rate_avg === 'number' && summary.heart_rate_avg > 90) return 'Tu ritmo es algo alto. Relájate unos minutos.';
+    if (typeof summary.spo2_avg === 'number' && summary.spo2_avg < 95) return 'Oxigenación baja. Respira profundo.';
+    return 'Tus signos vitales se ven estables. ¡Sigue así! 👍';
+  }, [summary]);
 
   return (
     <ScreenWithMenuPush
-      userName="Gerardo"
-      deviceStatus={latestSummary.device_status}
-      deviceId={latestSummary.device_id}
-      avatarLabel="G"
+      deviceStatus={summary.device_status}
+      deviceId={summary.device_id}
       scroll
       contentContainerStyle={styles.content}
+      // 👇 ahora el refreshControl va dentro de scrollProps
+      scrollProps={{
+        refreshControl: (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+          />
+        ),
+      }}
     >
-      {/* --------- RESUMEN RÁPIDO ARRIBA --------- */}
-      <View style={styles.statusCard}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.statusTitle}>Resumen de hoy</Text>
-          <Text style={styles.statusSub}>
-            Última sesión en vivo: {latestSummary.lastSessionAgo} atrás
-          </Text>
-          <Text style={styles.statusSubDim}>
-            Dispositivo · {latestSummary.device_id}{' '}
-            {latestSummary.device_status === 'Conectado'
-              ? '· Conectado'
-              : '· Sin señal'}
-          </Text>
-
-          {latestSummary.hadAlert ? (
-            <Text style={styles.statusAlertDanger}>
-              {latestSummary.lastAlertText}
-            </Text>
-          ) : (
-            <Text style={styles.statusSafe}>Sin alertas críticas recientes</Text>
-          )}
+      {loading ? (
+        <View style={{ padding: 40, alignItems: 'center' }}>
+           <ActivityIndicator size="large" color={colors.accent} />
+           <Text style={{ color: colors.muted, marginTop: 10 }}>Sincronizando...</Text>
         </View>
+      ) : (
+        <>
+          {/* Resumen de Hoy */}
+          <View style={styles.statusCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statusTitle}>Resumen de hoy</Text>
+              <Text style={styles.statusSub}>
+                Última lectura: hace {summary.lastSessionAgo}
+              </Text>
+              <Text style={styles.statusSubDim}>
+                Dispositivo · {summary.device_id}{' '}
+                <Text style={{ 
+                  color: summary.device_status === 'Conectado' ? colors.accent : colors.dim, 
+                  fontWeight: 'bold' 
+                }}>
+                   · {summary.device_status}
+                </Text>
+              </Text>
 
-        <View style={styles.badgeStable}>
-          <Text style={styles.badgeStableText}>ESTABLE</Text>
-        </View>
-      </View>
+              {summary.hadAlert ? (
+                <Text style={styles.statusAlertDanger}>{summary.lastAlertText}</Text>
+              ) : (
+                <Text style={styles.statusSafe}>Sin alertas críticas recientes</Text>
+              )}
+            </View>
 
-      {/* --------- MÉTRICAS CLAVE DEL DÍA --------- */}
-      <View style={styles.metricsRow}>
-        <MetricSummary
-          label="Ritmo cardíaco"
-          value={`${latestSummary.heart_rate_avg} bpm`}
-          status={latestSummary.heart_rate_status}
-          color={colors.danger}
-          trend={heartTrend}
-          icon="❤️"
-        />
-        <MetricSummary
-          label="SpO₂"
-          value={`${latestSummary.spo2_avg}%`}
-          status={latestSummary.spo2_status}
-          color={colors.accent}
-          trend={spo2Trend}
-          icon="💨"
-        />
-      </View>
-
-      <View style={styles.metricsRow}>
-        <MetricSummary
-          label="Temperatura"
-          value={`${latestSummary.temperature_avg} °F`}
-          status={latestSummary.temperature_status}
-          color={colors.warning}
-          trend={tempTrend}
-          icon="🌡️"
-          fullWidth
-        />
-      </View>
-
-      {/* --------- RECOMENDACIÓN / BIENESTAR --------- */}
-      <View style={styles.recoBlock}>
-        <Text style={styles.recoTitle}>Recomendación</Text>
-        <Text style={styles.recoText}>{recommendation}</Text>
-        <Text style={styles.recoDisclaimer}>
-          Nota: Esto es orientación general, no un diagnóstico médico.
-        </Text>
-      </View>
-
-      {/* --------- ALERTAS RECIENTES (mini feed) --------- */}
-      <View style={styles.alertsBlock}>
-        <Text style={styles.alertsTitle}>Últimas alertas</Text>
-
-        {latestSummary.hadAlert ? (
-          <View style={[styles.alertItem, styles.alertItemDanger]}>
-            <Text style={styles.alertItemTextDanger}>
-              {latestSummary.lastAlertText}
-            </Text>
-            <Text style={styles.alertItemTime}>Hace 3h</Text>
+            <View style={[styles.badgeStable, summary.hadAlert ? { backgroundColor: colors.danger } : {}]}>
+              <Text style={styles.badgeStableText}>{summary.hadAlert ? 'ALERTA' : 'ESTABLE'}</Text>
+            </View>
           </View>
-        ) : (
-          <View style={[styles.alertItem, styles.alertItemOk]}>
-            <Text style={styles.alertItemTextOk}>
-              No se detectaron riesgos recientes
-            </Text>
-            <Text style={styles.alertItemTime}>Últimas 24h</Text>
-          </View>
-        )}
-      </View>
 
-      {/* DISCLAIMER FINAL */}
-      <Text style={styles.footerDisclaimer}>
-        Pulse Vital no reemplaza una evaluación médica profesional. En caso de
-        emergencia, busca ayuda inmediata.
-      </Text>
+          {/* Métricas */}
+          <View style={styles.metricsRow}>
+            <MetricSummary
+              label="Ritmo cardíaco"
+              value={`${summary.heart_rate_avg} bpm`}
+              status={summary.heart_rate_status}
+              color={colors.danger}
+              trend={heartTrend}
+              icon="❤️"
+            />
+            <MetricSummary
+              label="SpO₂"
+              value={`${summary.spo2_avg}%`}
+              status={summary.spo2_status}
+              color={colors.accent}
+              trend={spo2Trend}
+              icon="💨"
+            />
+          </View>
+
+          <View style={styles.metricsRow}>
+            <MetricSummary
+              label="Temperatura"
+              value={`${summary.temperature_avg} °C`}
+              status={summary.temperature_status}
+              color={colors.warning}
+              trend={tempTrend}
+              icon="🌡️"
+              fullWidth
+            />
+          </View>
+
+          {/* Recomendación */}
+          <View style={styles.recoBlock}>
+            <Text style={styles.recoTitle}>Recomendación</Text>
+            <Text style={styles.recoText}>{recommendation}</Text>
+            <Text style={styles.recoDisclaimer}>
+              Nota: Datos obtenidos del sensor MAX30102. No es diagnóstico médico.
+            </Text>
+          </View>
+
+          {/* Alertas recientes (simplificado para Home) */}
+          <View style={styles.alertsBlock}>
+            <Text style={styles.alertsTitle}>Estado del Sensor</Text>
+            {summary.hadAlert ? (
+              <View style={[styles.alertItem, styles.alertItemDanger]}>
+                <Text style={styles.alertItemTextDanger}>{summary.lastAlertText}</Text>
+                <Text style={styles.alertItemTime}>Reciente</Text>
+              </View>
+            ) : (
+              <View style={[styles.alertItem, styles.alertItemOk]}>
+                <Text style={styles.alertItemTextOk}>Lecturas normales</Text>
+                <Text style={styles.alertItemTime}>Últimas 20 muestras</Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.footerDisclaimer}>Pulse Vital App v0.1.0</Text>
+        </>
+      )}
     </ScreenWithMenuPush>
   );
 }
 
-/* -------- components internos para Home -------- */
+// --- Componentes visuales auxiliares (sin cambios de lógica) ---
 
 function MetricSummary({
-  label,
-  value,
-  status,
-  color,
-  trend,
-  icon,
-  fullWidth,
+  label, value, status, color, trend, icon, fullWidth
 }: {
-  label: string;
-  value: string;
-  status: string;
-  color: string;
-  trend: number[];
-  icon: string;
-  fullWidth?: boolean;
+  label: string; value: string; status: string; color: string; trend: number[]; icon: string; fullWidth?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.metricCard,
-        fullWidth && styles.metricCardFull,
-      ]}
-    >
-      {/* Header con icono y label */}
+    <View style={[styles.metricCard, fullWidth && styles.metricCardFull]}>
       <View style={styles.metricHeaderRow}>
         <Text style={[styles.metricIcon, { color }]}>{icon}</Text>
         <View style={{ flex: 1 }}>
@@ -192,33 +295,30 @@ function MetricSummary({
           <Text style={[styles.metricValue, { color }]}>{value}</Text>
         </View>
       </View>
-
-      {/* Sparkline dummy */}
       <Sparkline trend={trend} color={color} />
-
-      {/* Estado / comentario */}
       <Text style={styles.metricStatusText}>{status}</Text>
     </View>
   );
 }
 
-// mini sparkline (placeholder visual). en el futuro se puede reemplazar con chart real.
 function Sparkline({ trend, color }: { trend: number[]; color: string }) {
-  // sólo mostramos valores último vs primero para que se sienta "cambió X%"
+  if (!trend || trend.length < 2) {
+    return (
+      <View style={styles.sparkWrapper}>
+         <View style={[styles.sparkLineBg, { justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={{ fontSize: 10, color: colors.dim }}>...</Text>
+         </View>
+      </View>
+    );
+  }
   const first = trend[0];
   const last = trend[trend.length - 1];
   const diff = Math.round((last - first) * 10) / 10;
-  const diffLabel =
-    diff === 0
-      ? 'sin cambio'
-      : diff > 0
-      ? `+${diff}`
-      : `${diff}`;
+  const diffLabel = diff === 0 ? 'sin cambio' : diff > 0 ? `+${diff}` : `${diff}`;
 
   return (
     <View style={styles.sparkWrapper}>
       <View style={styles.sparkLineBg}>
-        {/* "línea" simulada */}
         <View
           style={[
             styles.sparkFakeLine,
@@ -226,294 +326,47 @@ function Sparkline({ trend, color }: { trend: number[]; color: string }) {
           ]}
         />
       </View>
-
       <View style={styles.sparkInfoRow}>
-        <Text style={styles.sparkInfoText}>
-          {diff >= 0 ? 'Subió' : 'Bajó'} {diffLabel} últimamente
-        </Text>
+        <Text style={styles.sparkInfoText}>Tendencia: {diffLabel}</Text>
       </View>
     </View>
   );
 }
 
-/* -------- styles -------- */
-
 const styles = StyleSheet.create({
-  content: {
-    paddingBottom: 24, // ScreenWithMenuPush le agrega más con safe-area
-  },
-
-  /* ----- tarjeta resumen arriba ----- */
-  statusCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  statusTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  statusSub: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '400',
-  },
-  statusSubDim: {
-    color: colors.dim,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  statusSafe: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '500',
-    marginTop: 10,
-  },
-  statusAlertDanger: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '500',
-    marginTop: 10,
-  },
-  badgeStable: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#00000055',
-  },
-  badgeStableText: {
-    color: colors.blackOnAccent,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-  },
-
-  /* ----- métricas resumen ----- */
-  metricsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: 12,
-    rowGap: 12,
-    marginBottom: 16,
-  },
-
-  metricCard: {
-    flexBasis: '48%',
-    flexGrow: 1,
-    minWidth: 150,
-
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-  },
-  metricCardFull: {
-    flexBasis: '100%',
-  },
-
-  metricHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  metricIcon: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginRight: 8,
-  },
-  metricLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-
-  // sparkline fake
-  sparkWrapper: {
-    marginBottom: 8,
-  },
-  sparkLineBg: {
-    borderRadius: 8,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    height: 40,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  sparkFakeLine: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    top: 8,
-    bottom: 8,
-    borderWidth: 2,
-    borderRadius: 16,
-    opacity: 0.8,
-    transform: [{ skewX: '18deg' }],
-  },
-  sparkInfoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  sparkInfoText: {
-    color: colors.dim,
-    fontSize: 12,
-    fontWeight: '400',
-  },
-
-  metricStatusText: {
-    color: colors.dim,
-    fontSize: 12,
-    fontWeight: '400',
-  },
-
-  /* ----- recomendación ----- */
-  recoBlock: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  recoTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  recoText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  recoDisclaimer: {
-    color: colors.dim,
-    fontSize: 12,
-  },
-
-  /* ----- acciones rápidas ----- */
-  quickActionsBlock: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  qaTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  qaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: 12,
-    rowGap: 12,
-  },
-  qaButton: {
-    flexBasis: '48%',
-    flexGrow: 1,
-    minWidth: 150,
-
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-  },
-  qaButtonPrimary: {
-    backgroundColor: colors.danger,
-    borderColor: colors.danger,
-  },
-  qaButtonSecondary: {
-    backgroundColor: colors.sidebarBg,
-    borderColor: colors.sidebarBorder,
-  },
-  qaButtonMainText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  qaButtonSubText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: colors.dim,
-    lineHeight: 16,
-  },
-
-  /* ----- alertas recientes ----- */
-  alertsBlock: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  alertsTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-
-  alertItem: {
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    marginBottom: 8,
-  },
-  alertItemDanger: {
-    backgroundColor: '#4c1d1d',
-    borderColor: colors.danger,
-  },
-  alertItemOk: {
-    backgroundColor: '#1e2a25',
-    borderColor: colors.accent,
-  },
-  alertItemTextDanger: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  alertItemTextOk: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  alertItemTime: {
-    color: colors.dim,
-    fontSize: 11,
-    fontWeight: '400',
-    marginTop: 4,
-  },
-
-  /* ----- footer disclaimer ----- */
-  footerDisclaimer: {
-    color: colors.dim,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 8,
-  },
+  content: { paddingBottom: 24 },
+  statusCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16, marginBottom: 20 },
+  statusTitle: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  statusSub: { color: colors.muted, fontSize: 13, fontWeight: '400' },
+  statusSubDim: { color: colors.dim, fontSize: 12, marginTop: 4 },
+  statusSafe: { color: colors.accent, fontSize: 13, fontWeight: '500', marginTop: 10 },
+  statusAlertDanger: { color: colors.danger, fontSize: 13, fontWeight: '500', marginTop: 10 },
+  badgeStable: { position: 'absolute', right: 16, top: 16, backgroundColor: colors.accent, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: '#00000055' },
+  badgeStableText: { color: colors.blackOnAccent, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
+  metricsRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 12, marginBottom: 16 },
+  metricCard: { flexBasis: '48%', flexGrow: 1, minWidth: 150, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16 },
+  metricCardFull: { flexBasis: '100%' },
+  metricHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  metricIcon: { fontSize: 18, fontWeight: '600', marginRight: 8 },
+  metricLabel: { color: colors.muted, fontSize: 13, fontWeight: '500', marginBottom: 4 },
+  metricValue: { fontSize: 22, fontWeight: '700' },
+  sparkWrapper: { marginBottom: 8 },
+  sparkLineBg: { borderRadius: 8, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, height: 40, overflow: 'hidden', marginBottom: 6 },
+  sparkFakeLine: { position: 'absolute', left: 12, right: 12, top: 8, bottom: 8, borderWidth: 2, borderRadius: 16, opacity: 0.8, transform: [{ skewX: '18deg' }] },
+  sparkInfoRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  sparkInfoText: { color: colors.dim, fontSize: 12, fontWeight: '400' },
+  metricStatusText: { color: colors.dim, fontSize: 12, fontWeight: '400' },
+  recoBlock: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16, marginBottom: 16 },
+  recoTitle: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 },
+  recoText: { color: colors.text, fontSize: 14, fontWeight: '500', lineHeight: 20, marginBottom: 8 },
+  recoDisclaimer: { color: colors.dim, fontSize: 12 },
+  alertsBlock: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16, marginBottom: 16 },
+  alertsTitle: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 12 },
+  alertItem: { borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, marginBottom: 8 },
+  alertItemDanger: { backgroundColor: '#4c1d1d', borderColor: colors.danger },
+  alertItemOk: { backgroundColor: '#1e2a25', borderColor: colors.accent },
+  alertItemTextDanger: { color: colors.danger, fontSize: 13, fontWeight: '500' },
+  alertItemTextOk: { color: colors.accent, fontSize: 13, fontWeight: '500' },
+  alertItemTime: { color: colors.dim, fontSize: 11, fontWeight: '400', marginTop: 4 },
+  footerDisclaimer: { color: colors.dim, fontSize: 12, textAlign: 'center', marginTop: 8 },
 });

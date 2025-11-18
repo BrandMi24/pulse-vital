@@ -26,12 +26,7 @@ export default function OnboardingStep1Screen({ navigation }: Props) {
       <View style={styles.buttonsBlock}>
         <TouchableOpacity
           style={styles.mainButton}
-          onPress={() => {
-            // más adelante aquí irá PairDeviceScreen
-            console.log('Conectar dispositivo');
-            // por ahora seguimos a la siguiente pantalla igual
-            navigation.navigate('OnboardingStep2');
-          }}
+          onPress={() => navigation.navigate('PairDevice')}
         >
           <Text style={styles.mainButtonText}>Conectar dispositivo</Text>
         </TouchableOpacity>
