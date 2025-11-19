@@ -2,7 +2,7 @@
 // Úsalo en cualquier pantalla importando las funciones de aquí.
 
 // --- Configuración Global ---
-export const DEVICE_ID = 'MAX30102_001'; 
+export const DEVICE_ID = 'ESP32_001'; 
 const API_BASE_URL = 'https://pulse-vital-api.onrender.com';
 
 // --- Interfaces Compartidas ---

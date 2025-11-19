@@ -235,18 +235,6 @@ export default function HomeScreen() {
             />
           </View>
 
-          <View style={styles.metricsRow}>
-            <MetricSummary
-              label="Temperatura"
-              value={`${summary.temperature_avg} °C`}
-              status={summary.temperature_status}
-              color={colors.warning}
-              trend={tempTrend}
-              icon="🌡️"
-              fullWidth
-            />
-          </View>
-
           {/* Recomendación */}
           <View style={styles.recoBlock}>
             <Text style={styles.recoTitle}>Recomendación</Text>
