@@ -6,7 +6,10 @@ import { RootStackParamList } from '../navigation/RootNavigator';
 import { colors } from '../theme/colors';
 import { getUser, saveUser } from '../storage/authStorage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'ForgotPassword'>;
+type Props = NativeStackScreenProps<
+  RootStackParamList,
+  'ForgotPassword' | 'ChangePassword'
+>;
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');

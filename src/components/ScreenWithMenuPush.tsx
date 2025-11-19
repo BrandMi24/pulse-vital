@@ -22,7 +22,13 @@ import { fetchLatestReadings, DEVICE_ID, SensorReading } from '../data/sensorSer
 import { useSlideMenu } from '../navigation/SlideMenuContext';
 
 // 👇 storage local del usuario
-import { getUser } from '../storage/authStorage';
+import { clearUser, getUser } from '../storage/authStorage';
+import {
+  clearEmergencyContact,
+  getEmergencyContact,
+  type EmergencyContact,
+} from '../storage/emergencyStorage';
+import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(width * 0.7, 260);
@@ -52,6 +58,8 @@ export default function ScreenWithMenuPush({
   const insets = useSafeAreaInsets();
   const { translateX, isOpen, open, close, toggle } = useSlideMenu();
 
+  const { logout } = useAuth();
+
   // 👉 nombre y avatar que realmente se muestran
   const [displayName, setDisplayName] = useState(userName);
   const [displayAvatar, setDisplayAvatar] = useState(avatarLabel);
@@ -64,6 +72,10 @@ export default function ScreenWithMenuPush({
     status: 'Cargando...',
     id: DEVICE_ID,
   });
+
+  // 👇 estado para contacto de emergencia
+  const [emergencyContact, setEmergencyContact] = useState<EmergencyContact | null>(null);
+  const [loadingEmergency, setLoadingEmergency] = useState(true);
 
   // Cargar info del usuario guardado
   useEffect(() => {
@@ -137,6 +149,29 @@ export default function ScreenWithMenuPush({
     };
   }, []);
 
+  // Cargar contacto de emergencia desde AsyncStorage
+  useEffect(() => {
+    let mounted = true;
+
+    const loadEmergency = async () => {
+      try {
+        const saved = await getEmergencyContact();
+        if (!mounted) return;
+        setEmergencyContact(saved);
+      } catch (e) {
+        console.log('Error cargando contacto de emergencia', e);
+      } finally {
+        if (mounted) setLoadingEmergency(false);
+      }
+    };
+
+    loadEmergency();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // Lo que mande la pantalla pisa lo que viene de la API
   const effectiveStatus = deviceStatus ?? deviceInfo.status;
   const effectiveId = deviceId ?? deviceInfo.id;
@@ -171,6 +206,28 @@ export default function ScreenWithMenuPush({
     }, 220);
   }
 
+  const handleLogout = async () => {
+    await clearUser();
+    await clearEmergencyContact();
+    logout();
+  };
+
+  // 👇 lógica de contacto de emergencia
+  const hasEmergency = !!emergencyContact;
+
+  const emergencyLabel = loadingEmergency
+    ? 'Cargando...'
+    : hasEmergency
+    ? `${emergencyContact!.name} · ${emergencyContact!.relationship}`
+    : 'No hay contacto de emergencia aún';
+
+  const handleEmergencyPress = () => {
+    // Solo navegamos al perfil si aún NO hay contacto y ya terminó de cargar
+    if (!hasEmergency && !loadingEmergency) {
+      goProfile();
+    }
+  };
+
   return (
     <View style={styles.root}>
       {/* SIDEBAR */}
@@ -188,10 +245,18 @@ export default function ScreenWithMenuPush({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.sidebarRow} onPress={() => {}}>
+          {/* Contacto de emergencia */}
+          <TouchableOpacity
+            style={[
+              styles.sidebarRow,
+              (hasEmergency || loadingEmergency) && styles.sidebarRowDisabled,
+            ]}
+            onPress={handleEmergencyPress}
+            disabled={hasEmergency || loadingEmergency}
+          >
             <Text style={styles.sidebarRowText}>Contacto de emergencia</Text>
             <Text style={styles.sidebarSubText}>
-              A quién avisar si hay alerta
+              {emergencyLabel}
             </Text>
           </TouchableOpacity>
         </View>
@@ -200,7 +265,11 @@ export default function ScreenWithMenuPush({
         <View style={styles.sidebarSection}>
           <Text style={styles.sidebarSectionTitle}>Monitoreo</Text>
 
-          <TouchableOpacity style={styles.sidebarRow} onPress={() => {}}>
+          {/* Dispositivo vinculado - estático */}
+          <TouchableOpacity
+            style={[styles.sidebarRow, styles.sidebarRowDisabled]}
+            disabled
+          >
             <Text style={styles.sidebarRowText}>Dispositivo vinculado</Text>
             <Text style={styles.sidebarSubText}>
               {effectiveStatus} · {effectiveId}
@@ -230,9 +299,7 @@ export default function ScreenWithMenuPush({
 
           <TouchableOpacity
             style={styles.sidebarRow}
-            onPress={() => {
-              console.log('Cerrar sesión');
-            }}
+            onPress={handleLogout}
           >
             <Text style={[styles.sidebarRowText, { color: colors.danger }]}>
               Cerrar sesión
@@ -372,6 +439,9 @@ const styles = StyleSheet.create({
   },
   sidebarRow: {
     marginBottom: 16,
+  },
+  sidebarRowDisabled: {
+    opacity: 0.6,
   },
   sidebarRowText: {
     color: colors.text,

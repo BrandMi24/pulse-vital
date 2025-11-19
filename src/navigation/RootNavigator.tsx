@@ -20,6 +20,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
+  ChangePassword: undefined;
 
   OnboardingStep1: undefined;
   OnboardingStep2: undefined;
@@ -76,7 +77,7 @@ export default function RootNavigator() {
       <Stack.Screen name="PairDevice" component={PairDeviceScreen} />
 
       {/* ForgotPassword disponible también estando logueado */}
-      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="ChangePassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 }

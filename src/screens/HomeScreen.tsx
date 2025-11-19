@@ -60,7 +60,7 @@ export default function HomeScreen() {
   const loadData = useCallback(async () => {
     try {
       // Llamamos al servicio en lugar de hacer fetch manual aquí
-      const data = await fetchLatestReadings(20);
+      const data = await fetchLatestReadings();
 
       if (data.length > 0) {
         processData(data);
@@ -255,7 +255,7 @@ export default function HomeScreen() {
             ) : (
               <View style={[styles.alertItem, styles.alertItemOk]}>
                 <Text style={styles.alertItemTextOk}>Lecturas normales</Text>
-                <Text style={styles.alertItemTime}>Últimas 20 muestras</Text>
+                <Text style={styles.alertItemTime}>Últimas 1000 muestras</Text>
               </View>
             )}
           </View>
@@ -301,7 +301,7 @@ function Sparkline({ trend, color }: { trend: number[]; color: string }) {
   }
   const first = trend[0];
   const last = trend[trend.length - 1];
-  const diff = Math.round((last - first) * 10) / 10;
+  const diff = last - first;
   const diffLabel = diff === 0 ? 'sin cambio' : diff > 0 ? `+${diff}` : `${diff}`;
 
   return (

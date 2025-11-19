@@ -417,7 +417,7 @@ export default function ProfileScreen() {
 
         <TouchableOpacity
           style={styles.logoutRow}
-          onPress={() => navigation.navigate('ForgotPassword')}
+          onPress={() => navigation.navigate('ChangePassword')}
         >
           <Text style={styles.logoutText}>Cambiar contraseña</Text>
           <Text style={styles.logoutSubText}>

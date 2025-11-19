@@ -9,7 +9,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import { colors } from '../theme/colors';
-import { DEVICE_ID } from '../data/sensorService';
+import { DEVICE_ID, setDeviceId } from '../data/sensorService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PairDevice'>;
 
@@ -21,6 +21,7 @@ const MOCK_DEVICES = [
 ];
 
 export default function PairDeviceScreen({ navigation }: Props) {
+  // Arrancamos con el DEVICE_ID actual como selección inicial
   const [selectedId, setSelectedId] = useState<string>(DEVICE_ID);
   const [customId, setCustomId] = useState<string>('');
 
@@ -28,14 +29,13 @@ export default function PairDeviceScreen({ navigation }: Props) {
     const finalId = customId.trim() || selectedId;
 
     if (!finalId) {
-      // podrías meter un Alert aquí
+      // Aquí podrías meter un Alert si quieres avisar al usuario
       return;
     }
 
-    // 🔹 Aquí en el futuro:
-    // - Guardar en AsyncStorage el deviceId actual
-    // - Actualizar algún DeviceContext
-    // Por ahora solo hacemos log
+    // 🔹 Actualizar el deviceId global del servicio
+    setDeviceId(finalId);
+
     console.log('Dispositivo vinculado:', finalId);
 
     // Volver a la pantalla anterior (Onboarding o Perfil)

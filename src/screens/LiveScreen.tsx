@@ -26,8 +26,14 @@ export default function LiveScreen() {
   // Usamos useRef para guardar el ID del intervalo y poder limpiarlo
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const isFetchingRef = useRef(false);
+
   // --- Función de carga (Polling) ---
   const refreshData = useCallback(async () => {
+
+    if (isFetchingRef.current) return;   // evita solapar requests
+    isFetchingRef.current = true;
+
     try {
       // Pedimos los últimos 15 datos para llenar la gráfica de golpe
       // Esto asegura que la gráfica siempre esté sincronizada con el servidor
@@ -62,6 +68,8 @@ export default function LiveScreen() {
     } catch (error) {
       console.log("Error polling live data:", error);
       // No cambiamos el estado a error fatal para no parpadear la UI, solo mantenemos el último
+    } finally {
+      isFetchingRef.current = false;
     }
   }, []);
 
